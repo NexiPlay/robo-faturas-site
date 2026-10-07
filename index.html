@@ -64,7 +64,7 @@
     <h1>Robô de faturas de energia</h1>
     <p>Entra no portal da distribuidora com o login do cliente e baixa o PDF da conta de luz.</p>
   </div>
-  <div class="usuario" id="usuario" hidden><span id="nomeUsuario"></span><button class="link" id="sair">Sair</button></div>
+  <div class="usuario" id="usuario" hidden><button class="link" id="copiarLink">Copiar link de acesso</button><span id="nomeUsuario"></span><button class="link" id="sair">Sair</button></div>
 </header>
 
 <main>
@@ -165,6 +165,13 @@ async function gh(caminho, opcoes = {}) {
 
 // ---------- entrar / sair ----------
 async function iniciar() {
+  // link de acesso: ...#token=xxx entra direto. O "#..." não vai para o
+  // servidor do GitHub Pages; o token é salvo neste navegador e sai da barra
+  const doLink = new URLSearchParams(location.hash.slice(1)).get("token");
+  if (doLink) {
+    salvarToken(doLink);
+    history.replaceState(null, "", location.pathname + location.search);
+  }
   token = lerToken();
   const logado = !!token;
   $("telaEntrar").hidden = logado;
@@ -207,6 +214,16 @@ function sair() {
   iniciar();
 }
 $("sair").addEventListener("click", sair);
+
+$("copiarLink").addEventListener("click", async () => {
+  const link = `${location.origin}${location.pathname}#token=${encodeURIComponent(token)}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    alert("Link copiado. Quem abrir este link entra direto, sem criar token, e pode rodar o robô e baixar faturas: mande só para quem deve ter acesso.");
+  } catch {
+    prompt("Copie o link de acesso:", link);
+  }
+});
 
 // ---------- formulário ----------
 async function carregarClientes() {
