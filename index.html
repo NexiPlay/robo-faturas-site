@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robô de Faturas</title>
+<style>
+  :root {
+    --fundo: #f5f6f8; --cartao: #fff; --texto: #1d2330; --suave: #667085; --borda: #e3e6eb;
+    --primaria: #2754c5; --ok: #1a7f4b; --ok-fundo: #e5f5ec; --erro: #b42318; --erro-fundo: #fdecea;
+    --log: #0f1420; --log-texto: #d6dbe4;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--fundo); color: var(--texto); }
+  header { background: var(--cartao); border-bottom: 1px solid var(--borda); padding: 14px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 2px 0 0; color: var(--suave); font-size: 14px; }
+  header .usuario { margin-left: auto; font-size: 14px; color: var(--suave); display: flex; gap: 10px; align-items: center; }
+  main { max-width: 1000px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 20px; }
+  section { background: var(--cartao); border: 1px solid var(--borda); border-radius: 10px; padding: 18px 20px; min-width: 0; }
+  h2 { margin: 0 0 14px; font-size: 16px; }
+  form.execucao { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 12px; align-items: end; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--suave); }
+  select, input { font: inherit; padding: 8px 10px; border: 1px solid var(--borda); border-radius: 6px; background: #fff; color: var(--texto); width: 100%; }
+  button { font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 6px; border: 0; cursor: pointer; background: var(--primaria); color: #fff; white-space: nowrap; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.secundario { background: transparent; color: var(--erro); border: 1px solid var(--erro); }
+  button.link { background: none; color: var(--primaria); padding: 0; font-weight: 500; }
+  .dica { font-size: 13px; color: var(--suave); margin: 10px 0 0; }
+  .erro { color: var(--erro); font-size: 14px; }
+  ol.passos-token { padding-left: 20px; margin: 0 0 14px; font-size: 14px; color: var(--suave); }
+  .entrar { display: grid; gap: 12px; max-width: 520px; }
+  .topo-execucao { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .selo { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 13px; font-weight: 600; background: var(--borda); color: var(--suave); white-space: nowrap; }
+  .selo.rodando { background: #e6edff; color: var(--primaria); }
+  .selo.sucesso { background: var(--ok-fundo); color: var(--ok); }
+  .selo.falha, .selo.cancelado { background: var(--erro-fundo); color: var(--erro); }
+  .pulsando::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; margin-right: 6px; animation: pulsa 1s infinite; }
+  @keyframes pulsa { 50% { opacity: .2; } }
+  ul.etapas { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 6px; font-size: 14px; }
+  ul.etapas li::before { display: inline-block; width: 22px; }
+  ul.etapas li.pendente { color: var(--suave); } ul.etapas li.pendente::before { content: "○"; }
+  ul.etapas li.andando { color: var(--primaria); font-weight: 600; } ul.etapas li.andando::before { content: "◔"; }
+  ul.etapas li.feita::before { content: "✓"; color: var(--ok); }
+  ul.etapas li.falhou { color: var(--erro); } ul.etapas li.falhou::before { content: "✗"; }
+  ul.etapas li.pulada { color: var(--suave); text-decoration: line-through; } ul.etapas li.pulada::before { content: "–"; }
+  .resultado { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+  .resultado.sucesso { background: var(--ok-fundo); color: var(--ok); }
+  .resultado.falha { background: var(--erro-fundo); color: var(--erro); }
+  pre { margin: 0; background: var(--log); color: var(--log-texto); padding: 12px 14px; border-radius: 8px; font: 12.5px/1.5 ui-monospace, Consolas, monospace; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  .tabela { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--borda); vertical-align: middle; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--suave); font-weight: 600; }
+  tr.clicavel { cursor: pointer; } tr.clicavel:hover { background: var(--fundo); } tr.atual { background: #eef3ff; }
+  a { color: var(--primaria); }
+  .vazio { color: var(--suave); font-size: 14px; }
+  @media (max-width: 760px) { form.execucao { grid-template-columns: 1fr 1fr; } form.execucao label:first-child, form.execucao button { grid-column: 1 / -1; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Robô de faturas de energia</h1>
+    <p>Entra no portal da distribuidora com o login do cliente e baixa o PDF da conta de luz.</p>
+  </div>
+  <div class="usuario" id="usuario" hidden><span id="nomeUsuario"></span><button class="link" id="sair">Sair</button></div>
+</header>
+
+<main>
+  <section id="telaEntrar" hidden>
+    <h2>Entrar</h2>
+    <p class="dica" style="margin:0 0 12px">O robô roda no GitHub. Para usar, cole um token do GitHub da sua conta (com acesso ao repositório do robô). Ele fica salvo só neste navegador.</p>
+    <ol class="passos-token">
+      <li>Abra <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → novo token (fine-grained)</a>.</li>
+      <li><b>Resource owner:</b> NexiPlay · <b>Repository access:</b> Only select repositories → <i>robo-faturas</i>.</li>
+      <li><b>Permissions → Repository:</b> Actions = <i>Read and write</i>, Contents = <i>Read-only</i>.</li>
+      <li>Clique em <b>Generate token</b>, copie e cole abaixo.</li>
+    </ol>
+    <form class="entrar" id="formEntrar">
+      <label>Token do GitHub <input id="token" type="password" autocomplete="off" placeholder="github_pat_..." required></label>
+      <button type="submit">Entrar</button>
+      <div class="erro" id="erroEntrar"></div>
+    </form>
+  </section>
+
+  <section id="telaExecutar" hidden>
+    <h2>Nova execução</h2>
+    <form class="execucao" id="formExecutar">
+      <label>Cliente (login)
+        <select id="cliente" required></select>
+      </label>
+      <label>UC / instalação
+        <input id="uc" autocomplete="off">
+      </label>
+      <label>Competência
+        <select id="competencia"></select>
+      </label>
+      <button id="executar" type="submit">Executar</button>
+    </form>
+    <p class="dica" id="dica"></p>
+    <p class="dica">A máquina do GitHub leva cerca de 1 minuto para começar; a fatura chega em uns 3 minutos e baixa sozinha neste computador.</p>
+  </section>
+
+  <section id="telaAcompanhar" hidden>
+    <div class="topo-execucao">
+      <h2 style="margin:0">Execução</h2>
+      <span class="selo" id="selo"></span>
+      <span id="titulo" class="vazio"></span>
+      <span style="flex:1"></span>
+      <a id="linkGithub" target="_blank" rel="noopener">ver no GitHub</a>
+      <button class="secundario" id="parar" hidden>Parar</button>
+    </div>
+    <ul class="etapas" id="etapas"></ul>
+    <div class="resultado" id="resultado" hidden></div>
+    <pre id="log" hidden></pre>
+  </section>
+
+  <section id="telaHistorico" hidden>
+    <h2>Execuções recentes</h2>
+    <div class="tabela"><table>
+      <thead><tr><th>Quando</th><th>Pedido</th><th>Por</th><th>Situação</th><th></th></tr></thead>
+      <tbody id="historico"></tbody>
+    </table></div>
+    <p class="dica">Os PDFs ficam disponíveis por 7 dias depois de cada execução.</p>
+  </section>
+</main>
+
+<script src="config.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const {repo, workflow, branch} = window.ROBO_CONFIG;
+const API = "https://api.github.com";
+const ETAPAS = [
+  ["Instalar o robô", "Preparando a máquina do GitHub"],
+  ["Rodar o robô", "Robô no portal da distribuidora"],
+  ["Guardar faturas", "Guardando a fatura"],
+];
+let token = "", runAtual = null, consultando = null, baixadas = new Set();
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dataHora = iso => iso ? new Date(iso).toLocaleString("pt-BR", {dateStyle: "short", timeStyle: "short"}) : "";
+const mesAno = c => c === "ultima" ? "última" : String(c).replace(/^(\d{4})-(\d{2})$/, "$2/$1");
+
+function lerToken() { try { return localStorage.getItem("robo_token") || ""; } catch { return ""; } }
+function salvarToken(t) { try { t ? localStorage.setItem("robo_token", t) : localStorage.removeItem("robo_token"); } catch {} }
+
+async function gh(caminho, opcoes = {}) {
+  const r = await fetch(API + caminho, {...opcoes, headers: {
+    "Authorization": `Bearer ${token}`, "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28", ...(opcoes.headers || {}),
+  }});
+  if (r.status === 401) { sair(); throw new Error("Token inválido ou vencido. Entre de novo."); }
+  if (!r.ok) {
+    const corpo = await r.json().catch(() => ({}));
+    if (r.status === 403 || r.status === 404) throw new Error(`Sem permissão no GitHub (${r.status}). Confira se o token tem acesso ao repositório ${repo} com Actions = Read and write. ${corpo.message || ""}`);
+    throw new Error(corpo.message || `GitHub respondeu ${r.status}`);
+  }
+  if (r.status === 204) return null;
+  // pedido "raw" (arquivo do repositório) ou download: devolve a resposta crua
+  const tipo = r.headers.get("content-type") || "";
+  return tipo.includes("json") && !String(opcoes.headers?.Accept || "").includes("raw") ? r.json() : r;
+}
+
+// ---------- entrar / sair ----------
+async function iniciar() {
+  token = lerToken();
+  const logado = !!token;
+  $("telaEntrar").hidden = logado;
+  for (const id of ["telaExecutar", "telaHistorico", "usuario"]) $(id).hidden = !logado;
+  if (!logado) return;
+  try {
+    const eu = await gh("/user");
+    $("nomeUsuario").textContent = eu.login;
+    await carregarClientes();
+    montarCompetencias();
+    await carregarHistorico();
+    const aberto = (await execucoes()).find(r => r.status !== "completed");
+    if (aberto) acompanhar(aberto.id);
+  } catch (erro) {
+    if (token) alert(erro.message);
+  }
+}
+
+$("formEntrar").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  $("erroEntrar").textContent = "";
+  token = $("token").value.trim();
+  try {
+    await gh(`/repos/${repo}`);
+  } catch (erro) {
+    token = "";
+    $("erroEntrar").textContent = erro.message;
+    return;
+  }
+  salvarToken(token);
+  $("token").value = "";
+  iniciar();
+});
+
+function sair() {
+  salvarToken("");
+  token = "";
+  clearTimeout(consultando);
+  $("telaAcompanhar").hidden = true;
+  iniciar();
+}
+$("sair").addEventListener("click", sair);
+
+// ---------- formulário ----------
+async function carregarClientes() {
+  // a lista de clientes é a do próprio workflow (uma fonte só)
+  const r = await gh(`/repos/${repo}/contents/.github/workflows/${workflow}?ref=${branch}`,
+                     {headers: {"Accept": "application/vnd.github.raw+json"}});
+  const yaml = await r.text();
+  const bloco = yaml.split(/\n\s*cliente:\s*\n/)[1]?.split(/\n\s*options:\s*\n/)[1] || "";
+  const opcoes = [];
+  for (const linha of bloco.split("\n")) {
+    const m = linha.match(/^\s*-\s*"(.*)"\s*$/);
+    if (!m) break;
+    opcoes.push(m[1]);
+  }
+  // "cpfl_cliente · NOME DO CLIENTE (CPFL)": a tela mostra só o que vem depois do "·"
+  $("cliente").innerHTML = opcoes.map(o =>
+    `<option value="${esc(o)}">${esc(o.split("·").slice(1).join("·").trim() || o)}</option>`).join("");
+  aoTrocarCliente();
+}
+
+function aoTrocarCliente() {
+  const ehEnel = $("cliente").value.startsWith("enel_");
+  $("uc").value = ehEnel ? "" : "todas";
+  $("uc").placeholder = ehEnel ? "nº da instalação" : "todas";
+  $("dica").textContent = ehEnel
+    ? "Enel SP: informe o número da instalação. Se o portal pedir captcha, a execução falha."
+    : "CPFL: “todas” baixa a fatura de todas as UCs do login.";
+}
+$("cliente").addEventListener("change", aoTrocarCliente);
+
+function montarCompetencias() {
+  const opcoes = [`<option value="ultima">Última disponível</option>`];
+  const d = new Date();
+  for (let i = 0; i < 18; i++) {
+    const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    opcoes.push(`<option value="${v}">${mesAno(v)}</option>`);
+    d.setMonth(d.getMonth() - 1);
+  }
+  $("competencia").innerHTML = opcoes.join("");
+}
+
+$("formExecutar").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const uc = $("uc").value.trim();
+  if (!uc) { alert("Informe a UC / instalação."); return; }
+  $("executar").disabled = true;
+  try {
+    const antes = new Date(Date.now() - 5000).toISOString();
+    const r = await gh(`/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ref: branch, return_run_details: true,
+        inputs: {cliente: $("cliente").value, uc, competencia: $("competencia").value}}),
+    });
+    const id = r?.workflow_run_id || await acharRunNovo(antes);
+    await carregarHistorico();
+    acompanhar(id);
+  } catch (erro) {
+    alert(erro.message);
+  } finally {
+    $("executar").disabled = false;
+  }
+});
+
+async function acharRunNovo(desde) {
+  // GitHub que não devolve o id no disparo: pega a execução mais nova minha
+  const eu = $("nomeUsuario").textContent;
+  for (let i = 0; i < 10; i++) {
+    const r = (await execucoes()).find(x => x.created_at >= desde && x.actor?.login === eu);
+    if (r) return r.id;
+    await new Promise(ok => setTimeout(ok, 2000));
+  }
+  throw new Error("O robô foi disparado, mas a execução não apareceu ainda. Veja em Execuções recentes.");
+}
+
+// ---------- acompanhar ----------
+async function acompanhar(id) {
+  clearTimeout(consultando);
+  runAtual = id;
+  document.querySelectorAll("tr[data-run]").forEach(tr => tr.classList.toggle("atual", tr.dataset.run == id));
+  $("telaAcompanhar").hidden = false;
+  $("telaAcompanhar").scrollIntoView({behavior: "smooth", block: "nearest"});
+  $("log").hidden = true;
+  $("resultado").hidden = true;
+  await atualizar(id, true);
+}
+
+function situacao(run) {
+  if (run.status !== "completed") return ["rodando", run.status === "in_progress" ? "rodando" : "na fila"];
+  if (run.conclusion === "success") return ["sucesso", "concluído"];
+  if (run.conclusion === "cancelled") return ["cancelado", "cancelado"];
+  return ["falha", "falha"];
+}
+
+async function atualizar(id, primeiraVez = false) {
+  if (id !== runAtual) return;
+  const run = await gh(`/repos/${repo}/actions/runs/${id}`);
+  const {jobs} = await gh(`/repos/${repo}/actions/runs/${id}/jobs`);
+  const job = jobs[0];
+  const [classe, texto] = situacao(run);
+  const aberto = run.status !== "completed";
+  $("selo").className = `selo ${classe}${aberto ? " pulsando" : ""}`;
+  $("selo").textContent = texto;
+  $("titulo").textContent = `${tituloPedido(run)} — ${dataHora(run.created_at)}`;
+  $("linkGithub").href = run.html_url;
+  $("parar").hidden = !aberto;
+
+  const passos = Object.fromEntries((job?.steps || []).map(s => [s.name, s]));
+  $("etapas").innerHTML = ETAPAS.map(([nome, rotulo]) => {
+    const s = passos[nome];
+    let estado = "pendente";
+    if (s?.status === "in_progress") estado = "andando";
+    else if (s?.status === "completed") estado = {success: "feita", failure: "falhou", skipped: "pulada", cancelled: "falhou"}[s.conclusion] || "feita";
+    return `<li class="${estado}">${rotulo}</li>`;
+  }).join("");
+
+  if (aberto) {
+    consultando = setTimeout(() => atualizar(id).catch(e => console.error(e)), 4000);
+    return;
+  }
+  await mostrarFim(run, job, !primeiraVez);
+  if (!primeiraVez) carregarHistorico();
+}
+
+function tituloPedido(run) {
+  // run-name do workflow: "cpfl_cliente · NOME · UC todas · 2026-08"
+  const partes = run.display_title.split("·").map(s => s.trim());
+  if (partes.length < 4) return run.display_title;
+  return `${partes.slice(1, -2).join(" · ")} · ${partes.at(-2)} · ${mesAno(partes.at(-1))}`;
+}
+
+async function lerLog(job) {
+  try {
+    const r = await gh(`/repos/${repo}/actions/jobs/${job.id}/logs`);
+    const texto = await r.text();
+    // só o passo do robô, sem a data/hora do GitHub na frente
+    const linhas = texto.split("\n").map(l => l.replace(/^\S+Z\s/, ""));
+    const ini = linhas.findIndex(l => l.includes("python rodar_github.py"));
+    const fim = linhas.findIndex((l, i) => i > ini && l.startsWith("##[group]Run actions/upload-artifact"));
+    return linhas.slice(ini + 1, fim > 0 ? fim : undefined)
+      .filter(l => !l.startsWith("##[") && !/^\s*(shell|env):|^\s+[A-Z_]+: /.test(l)).join("\n").trim();
+  } catch {
+    return "";
+  }
+}
+
+async function mostrarFim(run, job, baixarSozinho) {
+  const log = job ? await lerLog(job) : "";
+  if (log) { $("log").hidden = false; $("log").textContent = log; $("log").scrollTop = $("log").scrollHeight; }
+  const pdfs = run.conclusion === "success" || run.conclusion === "failure" ? await pdfsDoRun(run.id) : [];
+  const caixa = $("resultado");
+  caixa.hidden = false;
+  if (pdfs.length) {
+    caixa.className = "resultado sucesso";
+    caixa.innerHTML = `${pdfs.length} fatura(s): ` + pdfs.map((p, i) =>
+      `<button class="link" data-pdf="${i}">${esc(p.nome)}</button>`).join(" · ");
+    caixa.onclick = ev => { const i = ev.target.dataset?.pdf; if (i !== undefined) salvar(pdfs[i]); };
+    if (baixarSozinho && !baixadas.has(run.id)) { baixadas.add(run.id); pdfs.forEach(salvar); }
+  } else if (run.conclusion === "cancelled") {
+    caixa.className = "resultado falha";
+    caixa.textContent = "Execução cancelada.";
+  } else {
+    const motivo = (log.match(/captura falhou \(([^)]+)\): (.*)/) || log.match(/❌.*|ERROR.*/) || [])[0];
+    caixa.className = "resultado falha";
+    caixa.textContent = run.conclusion === "success" ? "Terminou sem fatura nova." : `Não baixou a fatura. ${motivo || "Veja o log abaixo."}`;
+  }
+}
+
+async function pdfsDoRun(id) {
+  const {artifacts} = await gh(`/repos/${repo}/actions/runs/${id}/artifacts`);
+  const art = artifacts.find(a => a.name === "faturas" && !a.expired);
+  if (!art) return [];
+  const r = await gh(`/repos/${repo}/actions/artifacts/${art.id}/zip`);
+  const zip = await JSZip.loadAsync(await r.arrayBuffer());
+  const pdfs = [];
+  for (const [caminho, arq] of Object.entries(zip.files)) {
+    if (arq.dir || !caminho.toLowerCase().endsWith(".pdf")) continue;
+    // distribuidora/cliente/ano/UC/mês.pdf -> "CLIENTE - UC - 2026-08.pdf"
+    const p = caminho.split("/");
+    const nome = p.length >= 5
+      ? `${p.at(-4)} - ${p.at(-2)} - ${p.at(-3)}-${p.at(-1)}`
+      : p.at(-1);
+    pdfs.push({nome, blob: await arq.async("blob")});
+  }
+  return pdfs;
+}
+
+function salvar(pdf) {
+  const url = URL.createObjectURL(new Blob([pdf.blob], {type: "application/pdf"}));
+  const a = Object.assign(document.createElement("a"), {href: url, download: pdf.nome});
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+$("parar").addEventListener("click", async () => {
+  if (!runAtual || !confirm("Parar a execução?")) return;
+  try { await gh(`/repos/${repo}/actions/runs/${runAtual}/cancel`, {method: "POST"}); } catch (e) { alert(e.message); }
+});
+
+// ---------- histórico ----------
+async function execucoes() {
+  const {workflow_runs} = await gh(`/repos/${repo}/actions/workflows/${workflow}/runs?per_page=15`);
+  return workflow_runs;
+}
+
+async function carregarHistorico() {
+  const runs = await execucoes();
+  $("historico").innerHTML = runs.length ? runs.map(r => {
+    const [classe, texto] = situacao(r);
+    return `<tr class="clicavel${r.id === runAtual ? " atual" : ""}" data-run="${r.id}">
+      <td>${dataHora(r.created_at)}</td><td>${esc(tituloPedido(r))}</td><td>${esc(r.actor?.login)}</td>
+      <td><span class="selo ${classe}">${texto}</span></td><td><button class="link">abrir</button></td></tr>`;
+  }).join("") : `<tr><td colspan="5" class="vazio">Nenhuma execução ainda.</td></tr>`;
+}
+
+$("historico").addEventListener("click", ev => {
+  const linha = ev.target.closest("tr[data-run]");
+  if (linha) acompanhar(Number(linha.dataset.run));
+});
+
+iniciar();
+</script>
+</body>
+</html>
