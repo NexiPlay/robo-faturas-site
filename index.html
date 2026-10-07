@@ -91,7 +91,7 @@
         <select id="cliente" required></select>
       </label>
       <label>UC / instalação
-        <input id="uc" autocomplete="off">
+        <select id="uc"></select>
       </label>
       <label>Competência
         <select id="competencia"></select>
@@ -238,19 +238,24 @@ async function carregarClientes() {
     if (!m) break;
     opcoes.push(m[1]);
   }
-  // "cpfl_cliente · NOME DO CLIENTE (CPFL)": a tela mostra só o que vem depois do "·"
+  // "cpfl_cliente · NOME DO CLIENTE (CPFL) · UCs 123, 456": a tela mostra o nome
   $("cliente").innerHTML = opcoes.map(o =>
-    `<option value="${esc(o)}">${esc(o.split("·").slice(1).join("·").trim() || o)}</option>`).join("");
+    `<option value="${esc(o)}">${esc(o.split("·")[1]?.trim() || o)}</option>`).join("");
   aoTrocarCliente();
 }
 
+function ucsDoCliente(opcao) {
+  const parte = opcao.split("·").map(s => s.trim()).find(s => s.startsWith("UCs "));
+  return parte ? parte.slice(4).split(",").map(s => s.trim()).filter(Boolean) : [];
+}
+
 function aoTrocarCliente() {
-  const ehEnel = $("cliente").value.startsWith("enel_");
-  $("uc").value = ehEnel ? "" : "todas";
-  $("uc").placeholder = ehEnel ? "nº da instalação" : "todas";
-  $("dica").textContent = ehEnel
-    ? "Enel SP: informe o número da instalação. Se o portal pedir captcha, a execução falha."
-    : "CPFL: “todas” baixa a fatura de todas as UCs do login.";
+  const opcao = $("cliente").value;
+  $("uc").innerHTML = `<option value="todas">Todas as UCs</option>` +
+    ucsDoCliente(opcao).map(u => `<option value="${esc(u)}">${esc(u)}</option>`).join("");
+  $("dica").textContent = opcao.startsWith("enel_")
+    ? "Enel SP: se o portal pedir captcha, a execução falha (não há ninguém para resolver)."
+    : "“Todas as UCs” baixa a fatura de cada UC do login.";
 }
 $("cliente").addEventListener("change", aoTrocarCliente);
 
@@ -267,17 +272,11 @@ function montarCompetencias() {
 
 $("formExecutar").addEventListener("submit", async ev => {
   ev.preventDefault();
-  const uc = $("uc").value.trim();
-  if (!uc) { alert("Informe a UC / instalação."); return; }
+  const uc = $("uc").value;
   $("executar").disabled = true;
   try {
     const antes = new Date(Date.now() - 5000).toISOString();
-    const r = await gh(`/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ref: branch, return_run_details: true,
-        inputs: {cliente: $("cliente").value, uc, competencia: $("competencia").value}}),
-    });
-    const id = r?.workflow_run_id || await acharRunNovo(antes);
+    const id = await disparar({cliente: $("cliente").value, uc, competencia: $("competencia").value}, antes);
     await carregarHistorico();
     acompanhar(id);
   } catch (erro) {
@@ -287,13 +286,32 @@ $("formExecutar").addEventListener("submit", async ev => {
   }
 });
 
-async function acharRunNovo(desde) {
+async function disparar(inputs, antes) {
+  // o GitHub às vezes responde 500 no disparo; antes de tentar de novo,
+  // confere se a execução foi criada mesmo assim (para não rodar duas vezes)
+  for (let tentativa = 1; ; tentativa++) {
+    try {
+      const r = await gh(`/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ref: branch, return_run_details: true, inputs}),
+      });
+      return r?.workflow_run_id || await acharRunNovo(antes);
+    } catch (erro) {
+      if (!/respondeu 5\d\d/.test(erro.message) || tentativa === 4) throw erro;
+      await new Promise(ok => setTimeout(ok, 3000 * tentativa));
+      const criado = await acharRunNovo(antes, 1).catch(() => null);
+      if (criado) return criado;
+    }
+  }
+}
+
+async function acharRunNovo(desde, tentativas = 10) {
   // GitHub que não devolve o id no disparo: pega a execução mais nova minha
   const eu = $("nomeUsuario").textContent;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < tentativas; i++) {
     const r = (await execucoes()).find(x => x.created_at >= desde && x.actor?.login === eu);
     if (r) return r.id;
-    await new Promise(ok => setTimeout(ok, 2000));
+    if (i < tentativas - 1) await new Promise(ok => setTimeout(ok, 2000));
   }
   throw new Error("O robô foi disparado, mas a execução não apareceu ainda. Veja em Execuções recentes.");
 }
@@ -348,10 +366,11 @@ async function atualizar(id, primeiraVez = false) {
 }
 
 function tituloPedido(run) {
-  // run-name do workflow: "cpfl_cliente · NOME · UC todas · 2026-08"
+  // run-name do workflow: "cpfl_cliente · NOME · UCs ... · UC todas · 2026-08"
   const partes = run.display_title.split("·").map(s => s.trim());
   if (partes.length < 4) return run.display_title;
-  return `${partes.slice(1, -2).join(" · ")} · ${partes.at(-2)} · ${mesAno(partes.at(-1))}`;
+  const uc = partes.at(-2) === "UC todas" ? "todas as UCs" : partes.at(-2);
+  return `${partes[1]} · ${uc} · ${mesAno(partes.at(-1))}`;
 }
 
 async function lerLog(job) {
