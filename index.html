@@ -132,10 +132,11 @@
 const $ = id => document.getElementById(id);
 const {repo, workflow, branch} = window.ROBO_CONFIG;
 const API = "https://api.github.com";
+// [passos do robo.yml que formam a etapa, texto na tela]
 const ETAPAS = [
-  ["Instalar o robô", "Preparando a máquina do GitHub"],
-  ["Rodar o robô", "Robô no portal da distribuidora"],
-  ["Guardar faturas", "Guardando a fatura"],
+  [["Instalar o robô", "Instalar o Chromium (só CPFL)"], "Preparando a máquina do GitHub"],
+  [["Rodar o robô"], "Robô no portal da distribuidora"],
+  [["Guardar faturas"], "Guardando a fatura"],
 ];
 let token = "", runAtual = null, consultando = null, baixadas = new Set();
 
@@ -349,11 +350,17 @@ async function atualizar(id, primeiraVez = false) {
   $("parar").hidden = !aberto;
 
   const passos = Object.fromEntries((job?.steps || []).map(s => [s.name, s]));
-  $("etapas").innerHTML = ETAPAS.map(([nome, rotulo]) => {
-    const s = passos[nome];
+  // Depois de uma etapa que falhou, as seguintes não contam como feitas: o
+  // workflow ainda roda "Guardar faturas" (if: always()), mas não há o que guardar.
+  let falhouAntes = false;
+  $("etapas").innerHTML = ETAPAS.map(([nomes, rotulo]) => {
+    const ss = nomes.map(n => passos[n]).filter(Boolean);
     let estado = "pendente";
-    if (s?.status === "in_progress") estado = "andando";
-    else if (s?.status === "completed") estado = {success: "feita", failure: "falhou", skipped: "pulada", cancelled: "falhou"}[s.conclusion] || "feita";
+    if (falhouAntes) estado = aberto ? "pendente" : "pulada";
+    else if (ss.some(s => s.status === "completed" && ["failure", "cancelled", "timed_out"].includes(s.conclusion))) estado = "falhou";
+    else if (ss.some(s => s.status === "in_progress")) estado = "andando";
+    else if (ss.length && ss.every(s => s.status === "completed")) estado = ss.every(s => s.conclusion === "skipped") ? "pulada" : "feita";
+    if (estado === "falhou") falhouAntes = true;
     return `<li class="${estado}">${rotulo}</li>`;
   }).join("");
 
